@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SSE Poll Live Test</title>
+</head>
+<body>
+  <h1>Live Poll Results</h1>
+
+  <pre id="output">Waiting for updates...</pre>
+
+  <script>
+    const pollId = "6937ea468617b99a109cd0d2";
+
+    const url = `http://127.0.0.1:8000/api/polls/${pollId}/results?live=true`;
+
+    const source = new EventSource(url);
+
+    source.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("Update:", data);
+
+      document.getElementById("output").textContent =
+        JSON.stringify(data, null, 2);
+    };
+
+    source.onerror = (err) => {
+      console.log("SSE error:", err);
+      source.close();
+    };
+  </script>
+</body>
+</html>
