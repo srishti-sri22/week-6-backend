@@ -18,7 +18,7 @@ async fn main() {
     let webauthn = utils::webauthn::init_webauthn();
 
     let cors = CorsLayer::new()
-    .allow_origin("http://localhost:3000".parse::<HeaderValue>().unwrap())
+    .allow_origin(Any)
     .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
     
     .allow_headers([
