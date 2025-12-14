@@ -24,7 +24,7 @@ pub async fn register_start(
     let user_unique_id = Uuid::new_v4();
 
     let (ccr, reg_state) = webauthn
-        .start_passkey_registration(user_unique_id, &body.username, &body.username, None)
+        .start_passkey_registration(user_unique_id, &body.username, &body.display_name, None)
         .map_err(|e| {
             eprintln!("Passkey registration error: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -39,6 +39,7 @@ pub async fn register_start(
     challenge_collection
         .insert_one(doc! {
         "username": &body.username,
+        "display_name": &body.display_name,
         "user_unique_id": user_unique_id.to_string(),
         "state": state_json,
         "created_at": BsonDateTime::now(),

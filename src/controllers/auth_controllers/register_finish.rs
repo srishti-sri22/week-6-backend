@@ -30,6 +30,11 @@ pub async fn register_finish(
         .get_str("state")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let display_name = challenge_doc
+        .get_str("display_name")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+
     let reg_state: PasskeyRegistration =
         serde_json::from_str(state_json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -58,6 +63,7 @@ pub async fn register_finish(
                     doc! {
                         "_id": new_id,
                         "username": &body.username,
+                        "display_name": &display_name,
                         "created_at": BsonDateTime::now(),
                     },
                 )
@@ -99,6 +105,7 @@ pub async fn register_finish(
     Ok(Json(RegisterResponse {
         success: true,
         username: body.username,
+        display_name,
         token,
         user_id,
     }))

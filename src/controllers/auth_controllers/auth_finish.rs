@@ -77,6 +77,35 @@ pub async fn auth_finish(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    let username = passkey_doc
+        .get_str("username")
+        .map_err(|e| {
+            eprintln!("Failed to get username: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .to_string();
+
+    let users_collection = db.collection::<Document>("users");
+    let user_doc = users_collection
+        .find_one(doc! { "_id": user_id })
+        .await
+        .map_err(|e| {
+            eprintln!("Failed to find user: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            eprintln!("User not found");
+            StatusCode::NOT_FOUND
+        })?;
+
+    let display_name = user_doc
+        .get_str("display_name")
+        .map_err(|e| {
+            eprintln!("Failed to get display_name: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .to_string();
+
     let updated_passkey_json = serde_json::to_string(&auth_result)
         .map_err(|e| {
             eprintln!("Failed to serialize updated passkey: {:?}", e);
@@ -111,7 +140,7 @@ pub async fn auth_finish(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let token = session::create_token(&body.username)
+    let token = session::create_token(&username)
         .map_err(|e| {
             eprintln!("Failed to create token: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -121,7 +150,8 @@ pub async fn auth_finish(
 
     let response = AuthResponse {
         success: true,
-        username: body.username.clone(),
+        username: username.clone(),
+        display_name,
         token: token.clone(),
         user_id: user_id.to_hex(),
     };
@@ -137,7 +167,7 @@ pub async fn auth_finish(
     );
 
     println!("✓ Setting session cookie");
-    println!("=== Auth complete for: {} ===", body.username);
+    println!("=== Auth complete for: {} ===", username);
 
     let mut resp = Json(response).into_response();
     resp.headers_mut().insert(

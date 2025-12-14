@@ -11,6 +11,7 @@ where
 #[derive(Deserialize)]
 pub struct RegisterStartRequest {
     pub username: String,
+    pub display_name: String,
 }
 
 #[derive(Deserialize)]
@@ -34,15 +35,16 @@ pub struct AuthFinishRequest {
 pub struct AuthResponse {
     pub success: bool,
     pub username: String,
+    pub display_name: String,
     pub token: String,
-    pub user_id : String
+    pub user_id: String,
 }
-
 
 #[derive(Serialize)]
 pub struct RegisterResponse {
     pub success: bool,
     pub username: String,
+    pub display_name: String,
     pub token: String,
     #[serde(serialize_with = "serialize_object_id_as_string")]
     pub user_id: ObjectId, 
