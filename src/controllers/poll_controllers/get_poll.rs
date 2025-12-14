@@ -20,15 +20,11 @@ pub async fn get_poll(
 
     let obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| AppError::BadRequest("Invalid poll id".to_string()))?;
-
-    println!("Poll id in get poll is {:?},", obj_id);
     
     let poll = poll_coll
         .find_one(doc! { "_id": obj_id })
         .await?
         .ok_or_else(|| AppError::NotFound("Poll not found".to_string()))?;
-
-    println!("Poll in get poll is {:?},", poll);
 
     let poll_res = PollResponse {
         id: poll.id.to_hex(),
@@ -39,7 +35,5 @@ pub async fn get_poll(
         created_at: poll.created_at,
         total_votes: poll.total_votes,
     };
-
-    println!("Poll response in get poll is {:?},", poll_res);
     Ok(Json(poll_res))
 }

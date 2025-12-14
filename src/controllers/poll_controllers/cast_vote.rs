@@ -57,10 +57,6 @@ pub async fn cast_vote(
         }
     };
 
-    println!("option id is {}", &payload.option_id);
-    println!("user id is {}", &payload.user_id);
-    println!("poll id is {}", obj_id);
-
     let update_result = coll
         .update_one(filter, update)
         .await?;

@@ -13,8 +13,6 @@ pub async fn auth_finish(
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Json(body): Json<AuthFinishRequest>,
 ) -> AppResult<impl IntoResponse> {
-    println!("=== Auth finish for: {} ===", body.username);
-
     if body.username.is_empty() {
         return Err(AppError::ValidationError("Username is required".to_string()));
     }
@@ -37,8 +35,6 @@ pub async fn auth_finish(
     let auth_result = webauthn
         .finish_passkey_authentication(&credential_json, &auth_state)
         .map_err(|e| AppError::AuthenticationError(format!("Authentication verification failed: {}", e)))?;
-
-    println!("✓ Authentication successful!");
 
     let credential_id = auth_result.cred_id().to_vec();
     let credential_id_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &credential_id);
@@ -85,9 +81,6 @@ pub async fn auth_finish(
         )
         .await?;
 
-    println!("✓ Passkey counter updated");
-    println!("User ID: {}", user_id);
-
     challenge_collection
         .delete_one(doc! { "username": &body.username })
         .await?;
@@ -95,7 +88,6 @@ pub async fn auth_finish(
     let token = session::create_token(&username)
         .map_err(|e| AppError::InternalError(format!("Failed to create session token: {}", e)))?;
 
-    println!("✓ Session token created");
 
     let response = AuthResponse {
         success: true,
@@ -114,10 +106,7 @@ pub async fn auth_finish(
         "session_token={}; Path=/; HttpOnly;{} SameSite=Lax; Max-Age=86400",
         token, secure_flag
     );
-
-    println!("✓ Setting session cookie");
-    println!("=== Auth complete for: {} ===", username);
-
+    
     let mut resp = Json(response).into_response();
     resp.headers_mut().insert(
         SET_COOKIE,
