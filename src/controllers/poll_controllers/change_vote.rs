@@ -103,7 +103,6 @@ pub async fn change_vote(
         options: new_poll.options,
         is_closed: new_poll.is_closed,
         created_at: new_poll.created_at,
-        updated_at: new_poll.updated_at,
         total_votes: new_poll.total_votes,
     };
 

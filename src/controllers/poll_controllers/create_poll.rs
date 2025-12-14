@@ -8,9 +8,8 @@ use axum::{
 use chrono::Utc;
 use mongodb::{
     Database,
-    bson::{ oid::ObjectId},
+    bson::{ DateTime, oid::ObjectId},
 };
-use uuid::Uuid;
 
 
 use crate::models::{
@@ -68,7 +67,6 @@ pub async fn create_poll(
             .collect(),
         is_closed: false,
         created_at: now,
-        updated_at: now,
         total_votes: 0
     };
 
@@ -84,7 +82,6 @@ pub async fn create_poll(
         options: new_poll.options,
         is_closed: new_poll.is_closed,
         created_at: new_poll.created_at,
-        updated_at: new_poll.updated_at,
         total_votes: new_poll.total_votes,
     };
 

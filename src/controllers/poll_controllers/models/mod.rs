@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
-use mongodb::bson::oid::ObjectId;
+
 use chrono::{DateTime, Utc};
+// use mongodb::bson;
+use serde::{Deserialize, Serialize};
 use crate::models::poll_models::{PollOption};
 
 #[derive(Deserialize,Debug)]
@@ -18,7 +19,6 @@ pub struct PollResponse {
     pub options: Vec<PollOption>,
     pub is_closed: bool,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
     pub total_votes: i32
 }
 

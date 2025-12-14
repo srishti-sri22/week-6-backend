@@ -16,18 +16,30 @@ pub async fn auth_finish(
     let challenge_doc = challenge_collection
         .find_one(doc! { "username": &body.username })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .map_err(|e| {
+            eprintln!("Failed to query challenge: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            eprintln!("No auth challenge found");
+            StatusCode::BAD_REQUEST
+        })?;
 
     let state_json = challenge_doc
         .get_str("state")
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Failed to get state: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let auth_state: PasskeyAuthentication =
-        serde_json::from_str(state_json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let auth_state: PasskeyAuthentication = serde_json::from_str(state_json)
+        .map_err(|e| {
+            eprintln!("Failed to deserialize auth state: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let credential_json: PublicKeyCredential =
-        serde_json::from_value(body.credential).map_err(|e| {
+    let credential_json: PublicKeyCredential = serde_json::from_value(body.credential)
+        .map_err(|e| {
             eprintln!("Credential parsing error: {:?}", e);
             StatusCode::BAD_REQUEST
         })?;
@@ -42,64 +54,99 @@ pub async fn auth_finish(
     println!("✓ Authentication successful!");
 
     let credential_id = auth_result.cred_id().to_vec();
-    let credential_id_base64 =
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &credential_id);
+    let credential_id_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &credential_id);
 
     let passkeys_collection = db.collection::<Document>("passkeys");
     
-    // Get the passkey document to retrieve user_id
     let passkey_doc = passkeys_collection
         .find_one(doc! { "credential_id": &credential_id_base64 })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    // Update the passkey
+        .map_err(|e| {
+            eprintln!("Failed to find passkey: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            eprintln!("Passkey not found");
+            StatusCode::NOT_FOUND
+        })?;
+
+    let user_id = passkey_doc
+        .get_object_id("user_id")
+        .map_err(|e| {
+            eprintln!("Failed to get user_id: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let updated_passkey_json = serde_json::to_string(&auth_result)
+        .map_err(|e| {
+            eprintln!("Failed to serialize updated passkey: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     passkeys_collection
         .update_one(
             doc! { "credential_id": &credential_id_base64 },
-            doc! { "$set": { "passkey": serde_json::to_string(&auth_result).unwrap() } },
+            doc! { 
+                "$set": { 
+                    "passkey_data": updated_passkey_json,
+                    "counter": auth_result.counter() as i32,
+                    "last_used_at": chrono::Utc::now().to_rfc3339(),
+                } 
+            },
         )
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Failed to update passkey: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    println!("✓ Passkey counter updated");
+    println!("User ID: {}", user_id);
 
     challenge_collection
         .delete_one(doc! { "username": &body.username })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // FIXED: Removed duplicate token creation
-    let token = session::create_token(&body.username)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    println!("=== Auth complete for: {} ===", body.username);
-    println!("Setting session_token cookie with value: {}", &token[..20]);
-
-    // FIXED: Get user_id from passkey document, not challenge document
-    // Handle the case where user_id might not exist
-    let user_id = passkey_doc
-        .get_object_id("user_id")
         .map_err(|e| {
-            eprintln!("Failed to get user_id from passkey: {:?}", e);
+            eprintln!("Failed to delete challenge: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    let token = session::create_token(&body.username)
+        .map_err(|e| {
+            eprintln!("Failed to create token: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    println!("✓ Session token created");
+
     let response = AuthResponse {
         success: true,
-        username: body.username,
+        username: body.username.clone(),
         token: token.clone(),
         user_id: user_id.to_hex(),
     };
-    dbg!(&user_id);
+
+    let is_production = std::env::var("ENVIRONMENT")
+        .unwrap_or_else(|_| "development".to_string()) == "production";
+    
+    let secure_flag = if is_production { " Secure;" } else { "" };
+    
     let cookie_value = format!(
-        "session_token={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
-        token
+        "session_token={}; Path=/; HttpOnly;{} SameSite=Lax; Max-Age=86400",
+        token, secure_flag
     );
+
+    println!("✓ Setting session cookie");
+    println!("=== Auth complete for: {} ===", body.username);
 
     let mut resp = Json(response).into_response();
     resp.headers_mut().insert(
         SET_COOKIE,
-        HeaderValue::from_str(&cookie_value).unwrap(),
+        HeaderValue::from_str(&cookie_value)
+            .map_err(|e| {
+                eprintln!("Failed to create cookie header: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
     );
 
     Ok(resp)

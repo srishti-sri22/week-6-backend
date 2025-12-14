@@ -2,7 +2,7 @@ use axum::{Router, extract::Extension, http::{HeaderValue, Method}, response::Js
 use serde_json::json;
 use std::{net::SocketAddr, sync::Arc};
 use dotenvy::dotenv;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{CorsLayer};
 
 mod db;
 mod routes;

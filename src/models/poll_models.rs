@@ -1,7 +1,6 @@
-use serde::{Serialize, Deserialize};
-use mongodb::bson::oid::ObjectId;
+use mongodb::bson::{oid::ObjectId, DateTime as BsonDateTime};
+use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -12,8 +11,8 @@ pub struct Poll {
     pub creator_id: ObjectId,
     pub options: Vec<PollOption>,
     pub is_closed: bool,
+    // #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
     pub total_votes: i32
 }
 

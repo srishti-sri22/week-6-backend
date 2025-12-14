@@ -45,5 +45,5 @@ pub struct RegisterResponse {
     pub username: String,
     pub token: String,
     #[serde(serialize_with = "serialize_object_id_as_string")]
-    pub user_id: ObjectId, // Will be serialized as hex string
+    pub user_id: ObjectId, 
 }

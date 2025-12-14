@@ -8,3 +8,4 @@ pub mod close_poll;
 pub mod models;
 pub mod polls;
 pub mod get_user_polls;
+pub mod check_vote;

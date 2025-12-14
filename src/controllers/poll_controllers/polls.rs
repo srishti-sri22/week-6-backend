@@ -41,7 +41,6 @@ pub async fn get_all_polls(
             options: poll.options,
             is_closed: poll.is_closed,
             created_at: poll.created_at,
-            updated_at: poll.updated_at,
             total_votes: poll.total_votes,
         })
         .collect();
