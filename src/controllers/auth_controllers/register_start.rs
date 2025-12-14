@@ -17,8 +17,18 @@ pub async fn register_start(
     let users = db.collection::<crate::models::user_models::User>("users");
 
     let existing = users.find_one(doc! { "username": &body.username }).await;
-    if existing.is_ok() && existing.unwrap().is_some() {
-        return Err(StatusCode::CONFLICT);
+    
+    match existing {
+        Ok(Some(_)) => {
+            eprintln!("Username already exists: {}", &body.username);
+            return Err(StatusCode::CONFLICT);
+        }
+        Ok(None) => {
+        }
+        Err(e) => {
+            eprintln!("Database error: {:?}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 
     let user_unique_id = Uuid::new_v4();
