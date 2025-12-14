@@ -45,7 +45,8 @@ pub async fn reset_poll(
         doc! {
             "$set":{
                 "options.$[].votes":0,
-                "is_closed":false
+                "is_closed":false,
+                "total_votes":0,
             }
         },
     )
