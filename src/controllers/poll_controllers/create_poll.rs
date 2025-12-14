@@ -1,9 +1,8 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     Json,
     extract::{Extension},
-    http::StatusCode,
 };
 use chrono::Utc;
 use mongodb::{
@@ -16,11 +15,12 @@ use crate::models::{
     poll_models::{Poll, PollOption}
 };
 use crate::controllers::poll_controllers::models::{CreatePollRequest, PollResponse};
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn create_poll(
     Extension(db): Extension<Arc<Database>>,
     Json(payload): Json<CreatePollRequest>,
-) -> Result<Json<PollResponse>, (StatusCode, String)> {
+) -> AppResult<Json<PollResponse>> {
     
     let coll = db.collection::<Poll>("polls");
 
@@ -31,7 +31,7 @@ pub async fn create_poll(
         .collect::<Vec<String>>();
     
     if unique_options.len()<2 {
-        return Err((StatusCode::BAD_REQUEST, "Enter atleast 2 options for the user to select from".to_string()));
+        return Err(AppError::ValidationError("Enter atleast 2 options for the user to select from".to_string()));
     }
 
     let mut deduped_options = Vec::new();
@@ -42,17 +42,22 @@ pub async fn create_poll(
     }
 
     if deduped_options.len() < 2 {
-        return Err((StatusCode::BAD_REQUEST, "Poll must have at least 2 unique options".to_string()));
+        return Err(AppError::ValidationError("Poll must have at least 2 unique options".to_string()));
     }
 
     if deduped_options.len() != unique_options.len() {
-        return Err((StatusCode::BAD_REQUEST, "Poll options must be unique".to_string()));
+        return Err(AppError::ValidationError("Poll options must be unique".to_string()));
     }
+    
     dbg!(&payload);
+    
+    let creator_id = ObjectId::parse_str(&payload.creator_id)
+        .map_err(|e| AppError::BadRequest(format!("Invalid creator_id: {}", e)))?;
+    
     let new_poll = Poll {
         id: ObjectId::new(),
         question: payload.question,
-        creator_id: ObjectId::parse_str(&payload.creator_id).unwrap(),
+        creator_id,
         options: payload
             .options
             .into_iter()
@@ -60,8 +65,7 @@ pub async fn create_poll(
                 id: ObjectId::new().to_hex(),
                 text,
                 votes: 0,   
-                voter: ObjectId::from_str(&payload.creator_id
-                ).unwrap()
+                voter: creator_id
             })
             .collect(),
         is_closed: false,
@@ -70,8 +74,7 @@ pub async fn create_poll(
     };
 
     coll.insert_one(&new_poll)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
     
         
     let poll_res = PollResponse {

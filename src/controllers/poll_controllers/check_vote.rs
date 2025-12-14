@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::{Extension, Path, Query},
-    http::StatusCode,
 };
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -12,21 +11,22 @@ use mongodb::{
 use serde_json::json;
 
 use crate::models::vote_record_models::VoteRecord;
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn check_user_vote(
     Path(poll_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     Extension(db): Extension<Arc<Database>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> AppResult<Json<serde_json::Value>> {
     
     let user_id_str = params.get("user_id")
-        .ok_or((StatusCode::BAD_REQUEST, "user_id query parameter is required".to_string()))?;
+        .ok_or_else(|| AppError::BadRequest("user_id query parameter is required".to_string()))?;
     
     let poll_obj_id = ObjectId::parse_str(&poll_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid poll_id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid poll_id".to_string()))?;
     
     let user_obj_id = ObjectId::parse_str(user_id_str)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid user_id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid user_id".to_string()))?;
     
     let vote_coll = db.collection::<VoteRecord>("vote_records");
     
@@ -35,8 +35,7 @@ pub async fn check_user_vote(
             "poll_id": poll_obj_id,
             "user_id": user_obj_id
         })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
     
     match vote_record {
         Some(record) => Ok(Json(json!({

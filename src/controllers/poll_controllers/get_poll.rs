@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::{Extension, Path},
-    http::StatusCode,
 };
 use std::sync::Arc;
 use mongodb::{
@@ -10,25 +9,26 @@ use mongodb::{
 };
 
 use crate::{controllers::poll_controllers::models::PollResponse, models::{poll_models::Poll}};
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn get_poll(
     Path(poll_id): Path<String>,
     Extension(db): Extension<Arc<Database>>,
-) -> Result<Json<PollResponse>, (StatusCode, String)> {
+) -> AppResult<Json<PollResponse>> {
 
     let poll_coll = db.collection::<Poll>("polls");
 
     let obj_id = ObjectId::parse_str(&poll_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid poll id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid poll id".to_string()))?;
 
-        println!("Poll id in get poll is {:?},", obj_id);
+    println!("Poll id in get poll is {:?},", obj_id);
+    
     let poll = poll_coll
         .find_one(doc! { "_id": obj_id })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "Poll not found".to_string()))?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Poll not found".to_string()))?;
 
-        println!("Poll in get poll is {:?},", poll);
+    println!("Poll in get poll is {:?},", poll);
 
     let poll_res = PollResponse {
         id: poll.id.to_hex(),

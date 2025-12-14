@@ -2,6 +2,7 @@ use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey}
 use serde::{Deserialize, Serialize};
 use chrono::{Utc, Duration};
 use std::env;
+use crate::utils::error::{AppError, AppResult};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -9,12 +10,13 @@ pub struct Claims {
     pub exp: usize,
 }
 
-pub fn create_token(username: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    let secret = env::var("SESSION_SECRET").unwrap_or_else(|_| "default-secret-key".to_string());
+pub fn create_token(username: &str) -> AppResult<String> {
+    let secret = env::var("SESSION_SECRET")
+        .map_err(|_| AppError::InternalError("SESSION_SECRET must be set in .env".to_string()))?;
     
     let expiration = Utc::now()
         .checked_add_signed(Duration::hours(24))
-        .expect("valid timestamp")
+        .ok_or_else(|| AppError::InternalError("Failed to calculate token expiration".to_string()))?
         .timestamp();
 
     let claims = Claims {
@@ -23,10 +25,12 @@ pub fn create_token(username: &str) -> Result<String, jsonwebtoken::errors::Erro
     };
 
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
+        .map_err(|e| AppError::AuthenticationError(format!("Failed to create token: {}", e)))
 }
 
-pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    let secret = env::var("SESSION_SECRET").unwrap_or_else(|_| "default-secret-key".to_string());
+pub fn verify_token(token: &str) -> AppResult<Claims> {
+    let secret = env::var("SESSION_SECRET")
+        .map_err(|_| AppError::InternalError("SESSION_SECRET must be set in .env".to_string()))?;
     
     decode::<Claims>(
         token,
@@ -34,4 +38,5 @@ pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
         &Validation::default(),
     )
     .map(|data| data.claims)
+    .map_err(|e| AppError::AuthenticationError(format!("Invalid token: {}", e)))
 }

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::{
     Json,
     extract::{Extension, Path},
-    http::StatusCode,
 };
 
 use mongodb::{
@@ -15,38 +14,36 @@ use crate::{controllers::poll_controllers::models::PollResponse, models::{
     poll_models::Poll,
     vote_record_models::VoteRecord,
 }};
-use crate::controllers::poll_controllers::models::{CastVoteRequest};
+use crate::controllers::poll_controllers::models::CastVoteRequest;
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn change_vote(
     Path(poll_id): Path<String>,
     Extension(db): Extension<Arc<Database>>,
     Json(payload): Json<CastVoteRequest>,
-) -> Result<Json<PollResponse>, (StatusCode, String)> {
+) -> AppResult<Json<PollResponse>> {
 
     let coll = db.collection::<Poll>("polls");
     let vote_coll = db.collection::<VoteRecord>("vote_records");
 
     let obj_id = ObjectId::parse_str(&poll_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid poll id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid poll id".to_string()))?;
 
     let user_obj_id = ObjectId::parse_str(payload.user_id.clone())
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid user id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid user id".to_string()))?;
 
-        let previous_vote = vote_coll
+    let previous_vote = vote_coll
         .find_one(doc! {
             "poll_id": obj_id,
             "user_id": user_obj_id
         })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::BAD_REQUEST, "User has not voted yet".to_string()))?;
+        .await?
+        .ok_or_else(|| AppError::BadRequest("User has not voted yet".to_string()))?;
 
     if previous_vote.option_id == payload.option_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "You already voted for this option".to_string(),
-        ));
+        return Err(AppError::Conflict("You already voted for this option".to_string()));
     }
+
     coll.update_one(
         doc! {
             "_id": obj_id,
@@ -56,8 +53,7 @@ pub async fn change_vote(
             "$inc": { "options.$.votes": -1 }
         }
     )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     coll.update_one(
         doc! {
@@ -68,8 +64,7 @@ pub async fn change_vote(
             "$inc": { "options.$.votes": 1 }
         }
     )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     vote_coll.update_one(
         doc! { "poll_id": obj_id, "user_id": user_obj_id },
@@ -79,14 +74,12 @@ pub async fn change_vote(
             }
         }
     )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await?;
 
     let new_poll = coll
         .find_one(doc! { "_id": obj_id })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "Poll not found".to_string()))?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Poll not found".to_string()))?;
 
     let poll_res = PollResponse {
         id: new_poll.id.to_hex(),

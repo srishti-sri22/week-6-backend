@@ -1,4 +1,4 @@
-use axum::{Json, extract::Extension, http::StatusCode};
+use axum::{Json, extract::Extension};
 use futures::stream::TryStreamExt;
 use mongodb::{
     Database,
@@ -6,37 +6,37 @@ use mongodb::{
 };
 use std::sync::Arc;
 use webauthn_rs::prelude::*;
-use crate::controllers::auth_controllers::models::AuthStartRequest;
+use crate::{
+    controllers::auth_controllers::models::AuthStartRequest,
+    utils::error::{AppError, AppResult}
+};
 
 pub async fn auth_start(
     Extension(db): Extension<Arc<Database>>,
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Json(body): Json<AuthStartRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> AppResult<Json<serde_json::Value>> {
+    if body.username.is_empty() {
+        return Err(AppError::ValidationError("Username is required".to_string()));
+    }
+
     let users = db.collection::<Document>("users");
 
     println!("🔍 Looking for user: {}", &body.username);
 
     let user_doc = users
         .find_one(doc! { "username": &body.username })
-        .await
-        .map_err(|e| {
-            eprintln!("❌ Database error finding user: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .await?
         .ok_or_else(|| {
             eprintln!("❌ User not found: {}", &body.username);
-            StatusCode::NOT_FOUND
+            AppError::NotFound(format!("User '{}' not found", &body.username))
         })?;
 
     println!("✅ User found: {:?}", user_doc);
 
     let user_id = user_doc
         .get_object_id("_id")
-        .map_err(|e| {
-            eprintln!("❌ Error getting user_id: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::InternalError(format!("Failed to get user_id: {}", e)))?;
 
     println!("✅ User ID: {}", user_id);
 
@@ -46,23 +46,15 @@ pub async fn auth_start(
 
     let passkey_docs: Vec<Document> = passkeys_collection
         .find(doc! { "user_id": user_id })
-        .await
-        .map_err(|e| {
-            eprintln!("❌ Database error finding passkeys: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .await?
         .try_collect()
-        .await
-        .map_err(|e| {
-            eprintln!("❌ Error collecting passkey docs: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     println!("✅ Found {} passkey documents", passkey_docs.len());
 
     if passkey_docs.is_empty() {
         eprintln!("❌ No passkeys found for user: {}", &body.username);
-        return Err(StatusCode::NOT_FOUND);
+        return Err(AppError::NotFound(format!("No passkeys found for user '{}'", &body.username)));
     }
 
     let mut passkeys: Vec<Passkey> = Vec::new();
@@ -72,17 +64,9 @@ pub async fn auth_start(
         
         let passkey_doc = doc
             .get_document("passkey")
-            .map_err(|e| {
-                eprintln!("❌ Error getting passkey document: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+            .map_err(|e| AppError::InternalError(format!("Failed to get passkey document: {}", e)))?;
 
-        let passkey: Passkey =
-            mongodb::bson::from_document(passkey_doc.clone())
-                .map_err(|e| {
-                    eprintln!("❌ Error deserializing passkey: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+        let passkey: Passkey = mongodb::bson::from_document(passkey_doc.clone())?;
 
         passkeys.push(passkey);
     }
@@ -91,26 +75,15 @@ pub async fn auth_start(
 
     let (rcr, auth_state) = webauthn
         .start_passkey_authentication(&passkeys)
-        .map_err(|e| {
-            eprintln!("❌ Webauthn error: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::WebauthnError(format!("Failed to start authentication: {}", e)))?;
 
-    let state_json =
-        serde_json::to_string(&auth_state).map_err(|e| {
-            eprintln!("❌ Error serializing auth state: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let state_json = serde_json::to_string(&auth_state)?;
 
     let challenge_collection = db.collection::<Document>("auth_challenges");
 
     challenge_collection
         .delete_many(doc! { "username": &body.username })
-        .await
-        .map_err(|e| {
-            eprintln!("❌ Error deleting old challenges: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     challenge_collection
         .insert_one(
@@ -120,18 +93,11 @@ pub async fn auth_start(
                 "created_at": BsonDateTime::now(),
             },
         )
-        .await
-        .map_err(|e| {
-            eprintln!("❌ Error inserting challenge: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     println!("✅ Auth challenge created successfully");
 
-    Ok(Json(
-        serde_json::to_value(rcr).map_err(|e| {
-            eprintln!("❌ Error converting rcr to JSON: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?,
-    ))
+    let rcr_value = serde_json::to_value(rcr)?;
+    
+    Ok(Json(rcr_value))
 }

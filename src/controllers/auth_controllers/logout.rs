@@ -1,14 +1,10 @@
 use axum::Json;
 use axum::response::{IntoResponse, Response};
 use axum::http::header::{SET_COOKIE, HeaderValue, COOKIE};
-use axum::http::StatusCode;
 use axum::extract::Request;
-use crate::utils::session;
+use crate::utils::{session, error::{AppError, AppResult}};
 
-pub async fn logout(
-    request: Request,
-) -> Result<Response, StatusCode> {
-    
+pub async fn logout(request: Request) -> AppResult<Response> {
     println!("=== Logout called ===");
     
     let cookies_header = request.headers().get(COOKIE);
@@ -22,7 +18,8 @@ pub async fn logout(
                 let cookie = cookie.trim();
                 if let Some((name, value)) = cookie.split_once('=') {
                     if name == "session_token" {
-                        println!("Found session_token: {}", &value[..20.min(value.len())]);
+                        let display_len = 20.min(value.len());
+                        println!("Found session_token: {}", &value[..display_len]);
                         
                         if let Ok(claims) = session::verify_token(value) {
                             println!("=== Logout for: {} ===", claims.sub);
@@ -42,7 +39,8 @@ pub async fn logout(
     
     resp.headers_mut().insert(
         SET_COOKIE,
-        HeaderValue::from_str(cookie_value).unwrap()
+        HeaderValue::from_str(cookie_value)
+            .map_err(|e| AppError::InternalError(format!("Failed to create cookie header: {}", e)))?
     );
 
     Ok(resp)

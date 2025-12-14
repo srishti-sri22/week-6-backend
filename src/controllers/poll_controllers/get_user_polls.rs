@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::{Extension, Path},
-    http::StatusCode,
 };
 use std::sync::Arc;
 use mongodb::{
@@ -11,26 +10,25 @@ use mongodb::{
 use futures::TryStreamExt;
 
 use crate::{controllers::poll_controllers::models::PollResponse, models::poll_models::Poll};
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn get_polls_by_user(
     Path(user_id): Path<String>,
     Extension(db): Extension<Arc<Database>>
-) -> Result<Json<Vec<PollResponse>>, (StatusCode, String)> {
+) -> AppResult<Json<Vec<PollResponse>>> {
 
     let coll = db.collection::<Poll>("polls");
 
     let object_id = ObjectId::parse_str(&user_id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid user ID: {}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid user ID: {}", e)))?;
 
     let cursor = coll
         .find(doc! { "creator_id": object_id })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     let polls: Vec<Poll> = cursor
         .try_collect()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     let poll_responses: Vec<PollResponse> = polls
         .into_iter()

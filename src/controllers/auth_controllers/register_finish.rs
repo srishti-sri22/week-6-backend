@@ -1,4 +1,4 @@
-use axum::{extract::Extension, http::StatusCode, Json};
+use axum::{extract::Extension, Json};
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime as BsonDateTime},
     Database,
@@ -9,53 +9,54 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::{
     controllers::auth_controllers::models::{RegisterFinishRequest, RegisterResponse},
-    utils::session,
+    utils::{session, error::{AppError, AppResult}},
 };
 
 pub async fn register_finish(
     Extension(db): Extension<Arc<Database>>,
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Json(body): Json<RegisterFinishRequest>,
-) -> Result<Json<RegisterResponse>, StatusCode> {
-    let challenge_collection =
-        db.collection::<mongodb::bson::Document>("registration_challenges");
+) -> AppResult<Json<RegisterResponse>> {
+    if body.username.is_empty() {
+        return Err(AppError::ValidationError("Username is required".to_string()));
+    }
+
+    let challenge_collection = db.collection::<mongodb::bson::Document>("registration_challenges");
 
     let challenge_doc = challenge_collection
         .find_one(doc! { "username": &body.username })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Registration challenge not found".to_string()))?;
 
     let state_json = challenge_doc
         .get_str("state")
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| AppError::InternalError(format!("Failed to get state: {}", e)))?;
 
     let display_name = challenge_doc
         .get_str("display_name")
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| AppError::InternalError(format!("Failed to get display_name: {}", e)))?
         .to_string();
 
-    let reg_state: PasskeyRegistration =
-        serde_json::from_str(state_json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let reg_state: PasskeyRegistration = serde_json::from_str(state_json)?;
 
-    let credential: RegisterPublicKeyCredential =
-        serde_json::from_value(body.credential).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let credential: RegisterPublicKeyCredential = serde_json::from_value(body.credential)
+        .map_err(|e| AppError::BadRequest(format!("Invalid credential format: {}", e)))?;
 
     let passkey = webauthn
         .finish_passkey_registration(&credential, &reg_state)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|e| AppError::WebauthnError(format!("Passkey registration failed: {}", e)))?;
 
     let users = db.collection::<mongodb::bson::Document>("users");
 
     let user_id = match users
         .find_one(doc! { "username": &body.username })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .await?
     {
-        Some(user) => user
-            .get_object_id("_id")
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .clone(),
+        Some(user) => {
+            user.get_object_id("_id")
+                .map_err(|e| AppError::InternalError(format!("Failed to get user_id: {}", e)))?
+                .clone()
+        }
         None => {
             let new_id = ObjectId::new();
             users
@@ -67,16 +68,14 @@ pub async fn register_finish(
                         "created_at": BsonDateTime::now(),
                     },
                 )
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .await?;
             new_id
         }
     };
 
     let credential_id_b64 = STANDARD.encode(passkey.cred_id());
 
-    let passkey_bson =
-        mongodb::bson::to_document(&passkey).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let passkey_bson = mongodb::bson::to_document(&passkey)?;
 
     let passkeys = db.collection::<mongodb::bson::Document>("passkeys");
 
@@ -91,16 +90,14 @@ pub async fn register_finish(
                 "last_used_at": BsonDateTime::now(),
             },
         )
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
     challenge_collection
         .delete_one(doc! { "username": &body.username })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
-    let token =
-        session::create_token(&body.username).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = session::create_token(&body.username)
+        .map_err(|e| AppError::InternalError(format!("Failed to create session token: {}", e)))?;
 
     Ok(Json(RegisterResponse {
         success: true,

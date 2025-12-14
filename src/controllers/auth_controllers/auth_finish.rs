@@ -1,55 +1,42 @@
-use axum::{Json, extract::Extension, http::{HeaderValue, StatusCode, header::SET_COOKIE}};
+use axum::{Json, extract::Extension, http::{HeaderValue, header::SET_COOKIE}};
 use axum::response::IntoResponse;
 use mongodb::{Database, bson::{Document, doc}};
 use std::sync::Arc;
 use webauthn_rs::prelude::*;
-use crate::{controllers::auth_controllers::models::{AuthFinishRequest, AuthResponse}, utils::session};
+use crate::{
+    controllers::auth_controllers::models::{AuthFinishRequest, AuthResponse}, 
+    utils::{session, error::{AppError, AppResult}}
+};
 
 pub async fn auth_finish(
     Extension(db): Extension<Arc<Database>>,
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Json(body): Json<AuthFinishRequest>,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> AppResult<impl IntoResponse> {
     println!("=== Auth finish for: {} ===", body.username);
+
+    if body.username.is_empty() {
+        return Err(AppError::ValidationError("Username is required".to_string()));
+    }
 
     let challenge_collection = db.collection::<Document>("auth_challenges");
     let challenge_doc = challenge_collection
         .find_one(doc! { "username": &body.username })
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to query challenge: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or_else(|| {
-            eprintln!("No auth challenge found");
-            StatusCode::BAD_REQUEST
-        })?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Authentication challenge not found".to_string()))?;
 
     let state_json = challenge_doc
         .get_str("state")
-        .map_err(|e| {
-            eprintln!("Failed to get state: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::InternalError(format!("Failed to get state: {}", e)))?;
 
-    let auth_state: PasskeyAuthentication = serde_json::from_str(state_json)
-        .map_err(|e| {
-            eprintln!("Failed to deserialize auth state: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let auth_state: PasskeyAuthentication = serde_json::from_str(state_json)?;
 
     let credential_json: PublicKeyCredential = serde_json::from_value(body.credential)
-        .map_err(|e| {
-            eprintln!("Credential parsing error: {:?}", e);
-            StatusCode::BAD_REQUEST
-        })?;
+        .map_err(|e| AppError::BadRequest(format!("Invalid credential format: {}", e)))?;
 
     let auth_result = webauthn
         .finish_passkey_authentication(&credential_json, &auth_state)
-        .map_err(|e| {
-            eprintln!("Auth verification failed: {:?}", e);
-            StatusCode::UNAUTHORIZED
-        })?;
+        .map_err(|e| AppError::AuthenticationError(format!("Authentication verification failed: {}", e)))?;
 
     println!("✓ Authentication successful!");
 
@@ -60,57 +47,30 @@ pub async fn auth_finish(
     
     let passkey_doc = passkeys_collection
         .find_one(doc! { "credential_id": &credential_id_base64 })
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to find passkey: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or_else(|| {
-            eprintln!("Passkey not found");
-            StatusCode::NOT_FOUND
-        })?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("Passkey not found".to_string()))?;
 
     let user_id = passkey_doc
         .get_object_id("user_id")
-        .map_err(|e| {
-            eprintln!("Failed to get user_id: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::InternalError(format!("Failed to get user_id: {}", e)))?;
 
     let username = passkey_doc
         .get_str("username")
-        .map_err(|e| {
-            eprintln!("Failed to get username: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .map_err(|e| AppError::InternalError(format!("Failed to get username: {}", e)))?
         .to_string();
 
     let users_collection = db.collection::<Document>("users");
     let user_doc = users_collection
         .find_one(doc! { "_id": user_id })
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to find user: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or_else(|| {
-            eprintln!("User not found");
-            StatusCode::NOT_FOUND
-        })?;
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
     let display_name = user_doc
         .get_str("display_name")
-        .map_err(|e| {
-            eprintln!("Failed to get display_name: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .map_err(|e| AppError::InternalError(format!("Failed to get display_name: {}", e)))?
         .to_string();
 
-    let updated_passkey_json = serde_json::to_string(&auth_result)
-        .map_err(|e| {
-            eprintln!("Failed to serialize updated passkey: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let updated_passkey_json = serde_json::to_string(&auth_result)?;
 
     passkeys_collection
         .update_one(
@@ -123,28 +83,17 @@ pub async fn auth_finish(
                 } 
             },
         )
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to update passkey: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     println!("✓ Passkey counter updated");
     println!("User ID: {}", user_id);
 
     challenge_collection
         .delete_one(doc! { "username": &body.username })
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to delete challenge: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     let token = session::create_token(&username)
-        .map_err(|e| {
-            eprintln!("Failed to create token: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(|e| AppError::InternalError(format!("Failed to create session token: {}", e)))?;
 
     println!("✓ Session token created");
 
@@ -173,10 +122,7 @@ pub async fn auth_finish(
     resp.headers_mut().insert(
         SET_COOKIE,
         HeaderValue::from_str(&cookie_value)
-            .map_err(|e| {
-                eprintln!("Failed to create cookie header: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
+            .map_err(|e| AppError::InternalError(format!("Failed to create cookie header: {}", e)))?
     );
 
     Ok(resp)

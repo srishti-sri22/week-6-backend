@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::Extension,
-    http::StatusCode,
 };
 use std::sync::Arc;
 use mongodb::{
@@ -11,23 +10,22 @@ use mongodb::{
 use futures_util::TryStreamExt;
 
 use crate::{controllers::poll_controllers::models::PollResponse, models::poll_models::Poll};
+use crate::utils::error::{AppResult};
 
 pub async fn get_all_polls(
     Extension(db): Extension<Arc<Database>>,
-) -> Result<Json<Vec<PollResponse>>, (StatusCode, String)> {
+) -> AppResult<Json<Vec<PollResponse>>> {
     let coll = db.collection::<Poll>("polls");
 
     let mut cursor = coll
         .find(doc! {}) 
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .await?;
 
     let mut new_polls = Vec::new();
 
     while let Some(poll) = cursor
         .try_next()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .await?
     {
         new_polls.push(poll);
     }

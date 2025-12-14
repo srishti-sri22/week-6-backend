@@ -3,7 +3,6 @@ use std::time::Duration;
 use axum::{
     extract::{Extension, Path},
     response::sse::{Event, Sse},
-    http::StatusCode,
 };
 use futures::stream::{self, Stream};
 use mongodb::{
@@ -14,14 +13,15 @@ use tokio::time::sleep;
 
 use crate::models::poll_models::Poll;
 use crate::controllers::poll_controllers::models::PollResponse;
+use crate::utils::error::{AppError, AppResult};
 
 pub async fn poll_updates_stream(
     Path(poll_id): Path<String>,
     Extension(db): Extension<Arc<Database>>,
-) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)> {
+) -> AppResult<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>> {
     
     let obj_id = ObjectId::parse_str(&poll_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid Poll id".to_string()))?;
+        .map_err(|_| AppError::BadRequest("Invalid Poll id".to_string()))?;
 
     let stream = stream::unfold((db, obj_id), |(db, poll_id)| async move {
         sleep(Duration::from_secs(2)).await;
