@@ -32,8 +32,7 @@ pub async fn change_vote(
     let user_obj_id = ObjectId::parse_str(payload.user_id.clone())
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid user id".to_string()))?;
 
-    // FInd the previous vote of the user
-    let previous_vote = vote_coll
+        let previous_vote = vote_coll
         .find_one(doc! {
             "poll_id": obj_id,
             "user_id": user_obj_id
@@ -42,15 +41,12 @@ pub async fn change_vote(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::BAD_REQUEST, "User has not voted yet".to_string()))?;
 
-        //check krenge ki agar dono options i id same hai, mtlb same options pr vote nahi kr skte hai
     if previous_vote.option_id == payload.option_id {
         return Err((
             StatusCode::FORBIDDEN,
             "You already voted for this option".to_string(),
         ));
     }
-
-    //db mei update kr do pehle ki id by decrremneating it
     coll.update_one(
         doc! {
             "_id": obj_id,
@@ -63,8 +59,6 @@ pub async fn change_vote(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-
-    //naye wale option ka vote count increment kr do
     coll.update_one(
         doc! {
             "_id": obj_id,
@@ -77,7 +71,6 @@ pub async fn change_vote(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // naya record add kr do , for that user
     vote_coll.update_one(
         doc! { "poll_id": obj_id, "user_id": user_obj_id },
         doc! {
@@ -89,7 +82,6 @@ pub async fn change_vote(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Updated poll nikal kr wapis return kr do
     let new_poll = coll
         .find_one(doc! { "_id": obj_id })
         .await

@@ -32,7 +32,6 @@ pub async fn cast_vote(
 
     let user_obj_id = ObjectId::parse_str(&payload.user_id).map_err(|_| (StatusCode::BAD_REQUEST, "Invalid user id".to_string()))?;
 
-    //pehle to check kro ki poll closed to nahi hai
     let poll = coll.find_one(doc! { "_id": obj_id })
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "The Poll is not found.".to_string()))?
@@ -41,7 +40,6 @@ pub async fn cast_vote(
     if poll.is_closed {
         return Err((StatusCode::FORBIDDEN, "Poll is Closed. Voting is not allowed".to_string()));
     }
-    //then check kro ki kahi, user ne already vote to nahi kra hai , mtlb poll_id must m=not exist in the vote recors for that user_id, if does mtlb ki voted
 
     let already_voted = vote_coll
         .find_one(doc! { "poll_id": obj_id, "user_id": user_obj_id.clone() })
@@ -52,12 +50,7 @@ pub async fn cast_vote(
         return Err((StatusCode::FORBIDDEN, "You have already voted for this poll and can't vote again, Bye Byee.".to_string()));
     }
 
-    //steps of here
-    //us option tk jao and update uska vote count to +1
-    
-
-    // Ensure we match the option id as the same type stored in DB (likely a hex string)
-    let filter = doc! { "_id": obj_id, "options.id": &payload.option_id  };
+        let filter = doc! { "_id": obj_id, "options.id": &payload.option_id  };
     let update = doc! {
     "$inc": {
         "options.$.votes": 1,
@@ -77,15 +70,11 @@ pub async fn cast_vote(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if update_result.matched_count == 0 {
-        // no poll / no option matched
         return Err((StatusCode::BAD_REQUEST, "Option not found for this poll".to_string()));
     }
     if update_result.modified_count == 0 {
-        // matched but not modified (should be rare) — surface as error
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to increment vote for option".to_string()));
     }
-
-    //voterrecorsd mei jao aur jo struct mei user ka details aya hai, update the values , to avoid double casting of votes
     let vote = VoteRecord {
         id: ObjectId::new(),
         poll_id: obj_id,

@@ -11,7 +11,6 @@ use mongodb::{
     bson::{doc, oid::ObjectId},
 };
 use tokio::time::sleep;
-use tokio_stream::StreamExt as _;
 
 use crate::models::poll_models::Poll;
 use crate::controllers::poll_controllers::models::PollResponse;

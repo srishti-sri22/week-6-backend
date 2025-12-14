@@ -1,6 +1,5 @@
 
 use chrono::{DateTime, Utc};
-// use mongodb::bson;
 use serde::{Deserialize, Serialize};
 use crate::models::poll_models::{PollOption};
 
@@ -35,12 +34,6 @@ pub struct CreatorOnly {
     pub user_id: String,
 }
 
-#[derive(Deserialize)]
-pub struct ResultsParams {
-    pub live: Option<bool>,
-    pub closed: Option<bool>,
-    pub creator: Option<String>,
-}
 
 
 

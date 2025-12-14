@@ -8,7 +8,7 @@ use axum::{
 use chrono::Utc;
 use mongodb::{
     Database,
-    bson::{ DateTime, oid::ObjectId},
+    bson::{ oid::ObjectId},
 };
 
 
@@ -30,7 +30,6 @@ pub async fn create_poll(
         .map(|opt| opt.trim().to_string())
         .collect::<Vec<String>>();
     
-    //dekho minimum 2 options to bheje hmara user
     if unique_options.len()<2 {
         return Err((StatusCode::BAD_REQUEST, "Enter atleast 2 options for the user to select from".to_string()));
     }

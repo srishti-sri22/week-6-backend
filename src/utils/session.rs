@@ -35,22 +35,3 @@ pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
     )
     .map(|data| data.claims)
 }
-
-pub async fn extract_session_from_cookie(
-    cookie_header: Option<&str>
-) -> Result<Claims, &'static str> {
-    let cookie_header = cookie_header.ok_or("No cookie header")?;
-    
-    for cookie in cookie_header.split(';') {
-        let cookie = cookie.trim();
-        if cookie.starts_with("session_token=") {
-            let token = cookie.strip_prefix("session_token=")
-                .ok_or("Invalid cookie format")?;
-            
-            return verify_token(token)
-                .map_err(|_| "Invalid or expired token");
-        }
-    }
-    
-    Err("Session token not found in cookies")
-}

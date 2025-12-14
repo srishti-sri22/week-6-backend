@@ -19,7 +19,6 @@ pub async fn get_polls_by_user(
 
     let coll = db.collection::<Poll>("polls");
 
-    // Parse user_id with error handling
     let object_id = ObjectId::parse_str(&user_id)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid user ID: {}", e)))?;
 
@@ -28,13 +27,11 @@ pub async fn get_polls_by_user(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Collect all polls into a vector
     let polls: Vec<Poll> = cursor
         .try_collect()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Map each Poll to PollResponse
     let poll_responses: Vec<PollResponse> = polls
         .into_iter()
         .map(|poll| PollResponse {

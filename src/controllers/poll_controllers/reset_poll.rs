@@ -27,11 +27,6 @@ pub async fn reset_poll(
 
     let obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid poll id".to_string()))?;
-    //krne ke liye
-    //vote counts sbka zero kr do. map krke options ko
-    //remove all the vote_records for each user us poll ke liye
-    //is_closed ko false kr do, just in case, hm closed hone ke baad reset krna chah rhe ho to
-    //jb poll reset jo tb jitne users hai unke vote_records se bhi hme hatana pdega - learnt this by trying on postman.
 
     let poll = coll
         .find_one(doc! {"_id":obj_id})

@@ -9,7 +9,7 @@ use mongodb::{
     bson::{doc, oid::ObjectId},
 };
 
-use crate::{controllers::poll_controllers::models::PollResponse, models::{poll_models::Poll, user_models::User}};
+use crate::{controllers::poll_controllers::models::PollResponse, models::{poll_models::Poll}};
 
 pub async fn get_poll(
     Path(poll_id): Path<String>,
@@ -17,7 +17,6 @@ pub async fn get_poll(
 ) -> Result<Json<PollResponse>, (StatusCode, String)> {
 
     let poll_coll = db.collection::<Poll>("polls");
-    let user_coll = db.collection::<User>("users");
 
     let obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid poll id".to_string()))?;
@@ -30,13 +29,7 @@ pub async fn get_poll(
         .ok_or((StatusCode::NOT_FOUND, "Poll not found".to_string()))?;
 
         println!("Poll in get poll is {:?},", poll);
-    // let creator = user_coll
-    //     .find_one(doc! { "_id": poll.creator_id })
-    //     .await
-    //     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    //     .ok_or((StatusCode::NOT_FOUND, "Creator not found".to_string()))?;
 
-    //     println!("Creator in get poll is {:?},", creator);
     let poll_res = PollResponse {
         id: poll.id.to_hex(),
         question: poll.question,
