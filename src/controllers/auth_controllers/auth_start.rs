@@ -51,7 +51,7 @@ pub async fn auth_start(
 
     let mut passkeys: Vec<Passkey> = Vec::new();
 
-    for (index, doc) in passkey_docs.iter().enumerate() {        
+    for (_index, doc) in passkey_docs.iter().enumerate() {        
         let passkey_doc = doc
             .get_document("passkey")
             .map_err(|e| AppError::InternalError(format!("Failed to get passkey document: {}", e)))?;

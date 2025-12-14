@@ -31,19 +31,26 @@ async fn main() {
         }
     };
 
-    let origin = "http://localhost:3000".parse::<HeaderValue>()
+    let cors_origin = std::env::var("CORS_ORIGIN")
         .unwrap_or_else(|_| {
-            eprintln!("Failed to parse CORS origin");
+            eprintln!("CORS_ORIGIN environment variable not set");
+            std::process::exit(1);
+        });
+
+    let origin = cors_origin.parse::<HeaderValue>()
+        .unwrap_or_else(|_| {
+            eprintln!("Failed to parse CORS origin: {}", cors_origin);
             std::process::exit(1);
         });
 
     let cors = CorsLayer::new()
         .allow_origin(origin)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::header::USER_AGENT,
+            axum::http::header::COOKIE,
             axum::http::header::HeaderName::from_static("x-requested-with"),
         ])
         .allow_credentials(true);
@@ -56,8 +63,20 @@ async fn main() {
         .layer(Extension(database.clone()))
         .layer(Extension(webauthn));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
+    let server_addr = std::env::var("SERVER_ADDR")
+        .unwrap_or_else(|_| {
+            eprintln!("SERVER_ADDR environment variable not set, using default 0.0.0.0:8000");
+            "0.0.0.0:8000".to_string()
+        });
+
+    let addr: SocketAddr = server_addr.parse()
+        .unwrap_or_else(|_| {
+            eprintln!("Failed to parse SERVER_ADDR: {}", server_addr);
+            std::process::exit(1);
+        });
+
     println!("Server running at http://{}", addr);
+    println!("CORS origin: {}", cors_origin);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,

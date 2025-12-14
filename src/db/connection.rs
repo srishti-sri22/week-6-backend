@@ -16,11 +16,21 @@ pub async fn init_db() -> AppResult<Database> {
         .map_err(|e| AppError::DatabaseError(format!("Failed to parse MongoDB URI: {}", e)))?;
 
     client_options.app_name = Some("PollingApp".to_string());
+    
+    client_options.connect_timeout = Some(std::time::Duration::from_secs(10));
+    client_options.server_selection_timeout = Some(std::time::Duration::from_secs(10));
+    client_options.max_pool_size = Some(10);
+    client_options.min_pool_size = Some(2);
 
     let client = Client::with_options(client_options)
         .map_err(|e| AppError::DatabaseError(format!("Failed to initialize MongoDB client: {}", e)))?;
     
-    println!("Database connection sucessfull.");
+    client.database(&db_name)
+        .run_command(mongodb::bson::doc! { "ping": 1 })
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to ping MongoDB: {}", e)))?;
+    
+    println!("Database connection successful.");
     
     Ok(client.database(&db_name))
 }

@@ -100,13 +100,12 @@ pub async fn auth_finish(
     let is_production = std::env::var("ENVIRONMENT")
         .unwrap_or_else(|_| "development".to_string()) == "production";
     
-    let secure_flag = if is_production { " Secure;" } else { "" };
     
     let cookie_value = format!(
-        "session_token={}; Path=/; HttpOnly;{} SameSite=Lax; Max-Age=86400",
-        token, secure_flag
-    );
-    
+    "session_token={}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=86400",
+    token
+);
+
     let mut resp = Json(response).into_response();
     resp.headers_mut().insert(
         SET_COOKIE,

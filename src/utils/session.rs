@@ -11,11 +11,16 @@ pub struct Claims {
 }
 
 pub fn create_token(username: &str) -> AppResult<String> {
-    let secret = env::var("SESSION_SECRET")
-        .map_err(|_| AppError::InternalError("SESSION_SECRET must be set in .env".to_string()))?;
+    let secret = env::var("JWT_SECRET")
+        .map_err(|_| AppError::InternalError("JWT_SECRET must be set in .env".to_string()))?;
+    
+    let max_age = env::var("SESSION_MAX_AGE")
+        .unwrap_or_else(|_| "86400".to_string())
+        .parse::<i64>()
+        .unwrap_or(86400);
     
     let expiration = Utc::now()
-        .checked_add_signed(Duration::hours(24))
+        .checked_add_signed(Duration::seconds(max_age))
         .ok_or_else(|| AppError::InternalError("Failed to calculate token expiration".to_string()))?
         .timestamp();
 
@@ -29,8 +34,8 @@ pub fn create_token(username: &str) -> AppResult<String> {
 }
 
 pub fn verify_token(token: &str) -> AppResult<Claims> {
-    let secret = env::var("SESSION_SECRET")
-        .map_err(|_| AppError::InternalError("SESSION_SECRET must be set in .env".to_string()))?;
+    let secret = env::var("JWT_SECRET")
+        .map_err(|_| AppError::InternalError("JWT_SECRET must be set in .env".to_string()))?;
     
     decode::<Claims>(
         token,
