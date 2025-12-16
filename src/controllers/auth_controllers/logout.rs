@@ -13,7 +13,7 @@ pub async fn logout(request: Request) -> AppResult<Response> {
             for cookie in cookie_str.split(';') {
                 let cookie = cookie.trim();
                 if let Some((name, value)) = cookie.split_once('=') {
-                    if name == "session_token" {
+                    if name == "token" {
                         let _display_len = 20.min(value.len());                        
                         if let Ok(claims) = session::verify_token(value) {
                             println!("=== Logout for: {} ===", claims.sub);
@@ -24,18 +24,18 @@ pub async fn logout(request: Request) -> AppResult<Response> {
         }
     }
 
-    let cookie_value = "session_token=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0";
+    let cookie_value = "token=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0";
     
-    let mut resp = Json(serde_json::json!({
+    let mut response = Json(serde_json::json!({
         "success": true,
         "message": "Logged out successfully"
     })).into_response();
     
-    resp.headers_mut().insert(
+    response.headers_mut().insert(
         SET_COOKIE,
         HeaderValue::from_str(cookie_value)
             .map_err(|e| AppError::InternalError(format!("Failed to create cookie header: {}", e)))?
     );
 
-    Ok(resp)
+    Ok(response)
 }

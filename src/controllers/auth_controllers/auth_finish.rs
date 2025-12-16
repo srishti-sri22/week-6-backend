@@ -1,24 +1,23 @@
-use axum::{Json, extract::Extension, http::{HeaderValue, header::SET_COOKIE}};
+use axum::{Json, extract::State, http::{HeaderValue, header::SET_COOKIE}};
 use axum::response::IntoResponse;
-use mongodb::{Database, bson::{Document, doc}};
-use std::sync::Arc;
+use mongodb::bson::{Document, doc};
 use webauthn_rs::prelude::*;
 use crate::{
     controllers::auth_controllers::models::{AuthFinishRequest, AuthResponse}, 
-    utils::{session, error::{AppError, AppResult}}
+    utils::{session, error::{AppError, AppResult}},
+    state::AppState,
 };
 
 pub async fn auth_finish(
-    Extension(db): Extension<Arc<Database>>,
-    Extension(webauthn): Extension<Arc<Webauthn>>,
+    State(state): State<AppState>,
     Json(body): Json<AuthFinishRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.username.is_empty() {
         return Err(AppError::ValidationError("Username is required".to_string()));
     }
 
-    let challenge_collection = db.collection::<Document>("auth_challenges");
-    let challenge_doc = challenge_collection
+    let auth_challenge_collection = state.db.collection::<Document>("auth_challenges");
+    let challenge_doc = auth_challenge_collection
         .find_one(doc! { "username": &body.username })
         .await?
         .ok_or_else(|| AppError::NotFound("Authentication challenge not found".to_string()))?;
@@ -32,14 +31,14 @@ pub async fn auth_finish(
     let credential_json: PublicKeyCredential = serde_json::from_value(body.credential)
         .map_err(|e| AppError::BadRequest(format!("Invalid credential format: {}", e)))?;
 
-    let auth_result = webauthn
+    let auth_result = state.webauthn
         .finish_passkey_authentication(&credential_json, &auth_state)
         .map_err(|e| AppError::AuthenticationError(format!("Authentication verification failed: {}", e)))?;
 
     let credential_id = auth_result.cred_id().to_vec();
     let credential_id_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &credential_id);
 
-    let passkeys_collection = db.collection::<Document>("passkeys");
+    let passkeys_collection = state.db.collection::<Document>("passkeys");
     
     let passkey_doc = passkeys_collection
         .find_one(doc! { "credential_id": &credential_id_base64 })
@@ -55,7 +54,7 @@ pub async fn auth_finish(
         .map_err(|e| AppError::InternalError(format!("Failed to get username: {}", e)))?
         .to_string();
 
-    let users_collection = db.collection::<Document>("users");
+    let users_collection = state.db.collection::<Document>("users");
     let user_doc = users_collection
         .find_one(doc! { "_id": user_id })
         .await?
@@ -81,13 +80,12 @@ pub async fn auth_finish(
         )
         .await?;
 
-    challenge_collection
+    auth_challenge_collection
         .delete_one(doc! { "username": &body.username })
         .await?;
 
     let token = session::create_token(&username)
         .map_err(|e| AppError::InternalError(format!("Failed to create session token: {}", e)))?;
-
 
     let response = AuthResponse {
         success: true,
@@ -97,14 +95,10 @@ pub async fn auth_finish(
         user_id: user_id.to_hex(),
     };
 
-    let is_production = std::env::var("ENVIRONMENT")
-        .unwrap_or_else(|_| "development".to_string()) == "production";
-    
-    
     let cookie_value = format!(
-    "session_token={}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=86400",
-    token
-);
+        "token={}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=86400",
+        token
+    );
 
     let mut resp = Json(response).into_response();
     resp.headers_mut().insert(

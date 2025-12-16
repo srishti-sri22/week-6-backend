@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
 use axum::{
     Json,
-    extract::{Extension, Path},
+    extract::{Extension, Path, State},
 };
 
 use mongodb::{
-    Database,
     bson::{doc, oid::ObjectId},
 };
 
@@ -16,23 +13,26 @@ use crate::{controllers::poll_controllers::models::PollResponse, models::{
 }};
 use crate::controllers::poll_controllers::models::CastVoteRequest;
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::session::Claims;
+use crate::state::AppState;
 
 pub async fn change_vote(
     Path(poll_id): Path<String>,
-    Extension(db): Extension<Arc<Database>>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CastVoteRequest>,
 ) -> AppResult<Json<PollResponse>> {
 
-    let coll = db.collection::<Poll>("polls");
-    let vote_coll = db.collection::<VoteRecord>("vote_records");
+    let polls_collection = state.db.collection::<Poll>("polls");
+    let vote_collection = state.db.collection::<VoteRecord>("vote_records");
 
     let obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| AppError::BadRequest("Invalid poll id".to_string()))?;
 
-    let user_obj_id = ObjectId::parse_str(payload.user_id.clone())
+    let user_obj_id = ObjectId::parse_str(&claims.sub)
         .map_err(|_| AppError::BadRequest("Invalid user id".to_string()))?;
 
-    let previous_vote = vote_coll
+    let previous_vote = vote_collection
         .find_one(doc! {
             "poll_id": obj_id,
             "user_id": user_obj_id
@@ -44,7 +44,7 @@ pub async fn change_vote(
         return Err(AppError::Conflict("You already voted for this option".to_string()));
     }
 
-    coll.update_one(
+    polls_collection.update_one(
         doc! {
             "_id": obj_id,
             "options.id": &previous_vote.option_id   
@@ -55,7 +55,7 @@ pub async fn change_vote(
     )
     .await?;
 
-    coll.update_one(
+    polls_collection.update_one(
         doc! {
             "_id": obj_id,
             "options.id": &payload.option_id        
@@ -66,7 +66,7 @@ pub async fn change_vote(
     )
     .await?;
 
-    vote_coll.update_one(
+    vote_collection.update_one(
         doc! { "poll_id": obj_id, "user_id": user_obj_id },
         doc! {
             "$set": {
@@ -76,12 +76,12 @@ pub async fn change_vote(
     )
     .await?;
 
-    let new_poll = coll
+    let new_poll = polls_collection
         .find_one(doc! { "_id": obj_id })
         .await?
         .ok_or_else(|| AppError::NotFound("Poll not found".to_string()))?;
 
-    let poll_res = PollResponse {
+    let poll_response = PollResponse {
         id: new_poll.id.to_hex(),
         question: new_poll.question,
         creator_id: new_poll.creator_id.to_hex(),
@@ -91,5 +91,5 @@ pub async fn change_vote(
         total_votes: new_poll.total_votes,
     };
 
-    Ok(Json(poll_res))
+    Ok(Json(poll_response))
 }

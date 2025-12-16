@@ -1,23 +1,22 @@
 use axum::{
     Json,
-    extract::Extension,
+    extract::State,
 };
-use std::sync::Arc;
 use mongodb::{
-    Database,
     bson::doc,
 };
 use futures_util::TryStreamExt;
 
 use crate::{controllers::poll_controllers::models::PollResponse, models::poll_models::Poll};
-use crate::utils::error::{AppResult};
+use crate::utils::error::AppResult;
+use crate::state::AppState;
 
 pub async fn get_all_polls(
-    Extension(db): Extension<Arc<Database>>,
+    State(state): State<AppState>,
 ) -> AppResult<Json<Vec<PollResponse>>> {
-    let coll = db.collection::<Poll>("polls");
+    let polls_collection = state.db.collection::<Poll>("polls");
 
-    let mut cursor = coll
+    let mut cursor = polls_collection
         .find(doc! {}) 
         .await?;
 

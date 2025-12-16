@@ -67,13 +67,13 @@ pub async fn auth_start(
 
     let state_json = serde_json::to_string(&auth_state)?;
 
-    let challenge_collection = db.collection::<Document>("auth_challenges");
+    let auth_challenge_collection = db.collection::<Document>("auth_challenges");
 
-    challenge_collection
+    auth_challenge_collection
         .delete_many(doc! { "username": &body.username })
         .await?;
 
-    challenge_collection
+    auth_challenge_collection
         .insert_one(
             doc! {
                 "username": &body.username,

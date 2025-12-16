@@ -214,6 +214,7 @@ dependencies = [
  "futures-util",
  "jsonwebtoken",
  "mongodb",
+ "once_cell",
  "serde",
  "serde_json",
  "time",

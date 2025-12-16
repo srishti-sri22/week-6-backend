@@ -1,29 +1,27 @@
-use axum::{extract::Extension, Json};
+use axum::{extract::State, Json};
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime as BsonDateTime},
-    Database,
 };
-use std::sync::Arc;
 use webauthn_rs::prelude::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::{
     controllers::auth_controllers::models::{RegisterFinishRequest, RegisterResponse},
     utils::{session, error::{AppError, AppResult}},
+    state::AppState,
 };
 
 pub async fn register_finish(
-    Extension(db): Extension<Arc<Database>>,
-    Extension(webauthn): Extension<Arc<Webauthn>>,
+    State(state): State<AppState>,
     Json(body): Json<RegisterFinishRequest>,
 ) -> AppResult<Json<RegisterResponse>> {
     if body.username.is_empty() {
         return Err(AppError::ValidationError("Username is required".to_string()));
     }
 
-    let challenge_collection = db.collection::<mongodb::bson::Document>("registration_challenges");
+    let register_challenge_collection = state.db.collection::<mongodb::bson::Document>("registration_challenges");
 
-    let challenge_doc = challenge_collection
+    let challenge_doc = register_challenge_collection
         .find_one(doc! { "username": &body.username })
         .await?
         .ok_or_else(|| AppError::NotFound("Registration challenge not found".to_string()))?;
@@ -42,11 +40,11 @@ pub async fn register_finish(
     let credential: RegisterPublicKeyCredential = serde_json::from_value(body.credential)
         .map_err(|e| AppError::BadRequest(format!("Invalid credential format: {}", e)))?;
 
-    let passkey = webauthn
+    let passkey = state.webauthn
         .finish_passkey_registration(&credential, &reg_state)
         .map_err(|e| AppError::WebauthnError(format!("Passkey registration failed: {}", e)))?;
 
-    let users = db.collection::<mongodb::bson::Document>("users");
+    let users = state.db.collection::<mongodb::bson::Document>("users");
 
     let user_id = match users
         .find_one(doc! { "username": &body.username })
@@ -77,7 +75,7 @@ pub async fn register_finish(
 
     let passkey_bson = mongodb::bson::to_document(&passkey)?;
 
-    let passkeys = db.collection::<mongodb::bson::Document>("passkeys");
+    let passkeys = state.db.collection::<mongodb::bson::Document>("passkeys");
 
     passkeys
         .insert_one(
@@ -92,7 +90,7 @@ pub async fn register_finish(
         )
         .await?;
 
-    challenge_collection
+    register_challenge_collection
         .delete_one(doc! { "username": &body.username })
         .await?;
 

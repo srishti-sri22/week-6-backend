@@ -1,12 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 use axum::{
-    extract::{Extension, Path},
+    extract::{Path, State},
     response::sse::{Event, Sse},
 };
 use futures::stream::{self, Stream};
 use mongodb::{
-    Database,
     bson::{doc, oid::ObjectId},
 };
 use tokio::time::sleep;
@@ -14,21 +13,24 @@ use tokio::time::sleep;
 use crate::models::poll_models::Poll;
 use crate::controllers::poll_controllers::models::PollResponse;
 use crate::utils::error::{AppError, AppResult};
+use crate::state::AppState;
 
 pub async fn poll_updates_stream(
     Path(poll_id): Path<String>,
-    Extension(db): Extension<Arc<Database>>,
+    State(state): State<AppState>,
 ) -> AppResult<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>> {
     
-    let obj_id = ObjectId::parse_str(&poll_id)
+    let poll_obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| AppError::BadRequest("Invalid Poll id".to_string()))?;
 
-    let stream = stream::unfold((db, obj_id), |(db, poll_id)| async move {
+    let db = Arc::clone(&state.db);
+
+    let stream = stream::unfold((db, poll_obj_id), |(db, poll_id)| async move {
         sleep(Duration::from_secs(2)).await;
 
-        let coll = db.collection::<Poll>("polls");
+        let polls_collection = db.collection::<Poll>("polls");
         
-        match coll.find_one(doc! { "_id": poll_id }).await {
+        match polls_collection.find_one(doc! { "_id": poll_id }).await {
             Ok(Some(poll)) => {
                 let poll_response = PollResponse {
                     id: poll.id.to_hex(),

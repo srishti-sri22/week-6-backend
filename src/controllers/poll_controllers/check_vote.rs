@@ -1,36 +1,32 @@
 use axum::{
     Json,
-    extract::{Extension, Path, Query},
+    extract::{Extension, Path, State},
 };
-use std::sync::Arc;
-use std::collections::HashMap;
 use mongodb::{
-    Database,
     bson::{doc, oid::ObjectId},
 };
 use serde_json::json;
 
 use crate::models::vote_record_models::VoteRecord;
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::session::Claims;
+use crate::state::AppState;
 
 pub async fn check_user_vote(
     Path(poll_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-    Extension(db): Extension<Arc<Database>>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> AppResult<Json<serde_json::Value>> {
-    
-    let user_id_str = params.get("user_id")
-        .ok_or_else(|| AppError::BadRequest("user_id query parameter is required".to_string()))?;
     
     let poll_obj_id = ObjectId::parse_str(&poll_id)
         .map_err(|_| AppError::BadRequest("Invalid poll_id".to_string()))?;
     
-    let user_obj_id = ObjectId::parse_str(user_id_str)
+    let user_obj_id = ObjectId::parse_str(&claims.sub)
         .map_err(|_| AppError::BadRequest("Invalid user_id".to_string()))?;
     
-    let vote_coll = db.collection::<VoteRecord>("vote_records");
+    let vote_collection = state.db.collection::<VoteRecord>("vote_records");
     
-    let vote_record = vote_coll
+    let vote_record = vote_collection
         .find_one(doc! {
             "poll_id": poll_obj_id,
             "user_id": user_obj_id

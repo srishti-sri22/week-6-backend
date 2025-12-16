@@ -1,19 +1,17 @@
-use axum::{Json, extract::Extension};
+use axum::{Json, extract::State};
 use mongodb::{
-    Database,
     bson::{DateTime as BsonDateTime, Document, doc},
 };
-use std::sync::Arc;
 use webauthn_rs::prelude::*;
 
 use crate::{
     controllers::auth_controllers::models::RegisterStartRequest,
-    utils::error::{AppError, AppResult}
+    utils::error::{AppError, AppResult},
+    state::AppState,
 };
 
 pub async fn register_start(
-    Extension(db): Extension<Arc<Database>>,
-    Extension(webauthn): Extension<Arc<Webauthn>>,
+    State(state): State<AppState>,
     Json(body): Json<RegisterStartRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     if body.username.is_empty() {
@@ -32,7 +30,7 @@ pub async fn register_start(
         return Err(AppError::ValidationError("Display name must be at least 2 characters long".to_string()));
     }
 
-    let users = db.collection::<crate::models::user_models::User>("users");
+    let users = state.db.collection::<crate::models::user_models::User>("users");
 
     let existing = users.find_one(doc! { "username": &body.username }).await?;
     
@@ -43,14 +41,14 @@ pub async fn register_start(
 
     let user_unique_id = Uuid::new_v4();
 
-    let (ccr, reg_state) = webauthn
+    let (ccr, reg_state) = state.webauthn
         .start_passkey_registration(user_unique_id, &body.username, &body.display_name, None)
         .map_err(|e| AppError::WebauthnError(format!("Failed to start passkey registration: {}", e)))?;
 
     let state_json = serde_json::to_string(&reg_state)?;
 
-    let challenge_collection = db.collection::<Document>("registration_challenges");
-    challenge_collection
+    let register_challenge_collection = state.db.collection::<Document>("registration_challenges");
+    register_challenge_collection
         .insert_one(doc! {
             "username": &body.username,
             "display_name": &body.display_name,

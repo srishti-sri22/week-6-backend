@@ -1,28 +1,27 @@
-use std::sync::Arc;
-
 use axum::{
     Json,
-    extract::{Extension},
+    extract::{Extension, State},
 };
 use chrono::Utc;
 use mongodb::{
-    Database,
-    bson::{ oid::ObjectId},
+    bson::oid::ObjectId,
 };
-
 
 use crate::models::{
     poll_models::{Poll, PollOption}
 };
 use crate::controllers::poll_controllers::models::{CreatePollRequest, PollResponse};
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::session::Claims;
+use crate::state::AppState;
 
 pub async fn create_poll(
-    Extension(db): Extension<Arc<Database>>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreatePollRequest>,
 ) -> AppResult<Json<PollResponse>> {
     
-    let coll = db.collection::<Poll>("polls");
+    let poll_collection = state.db.collection::<Poll>("polls");
 
     let now = Utc::now();
 
@@ -49,9 +48,7 @@ pub async fn create_poll(
         return Err(AppError::ValidationError("Poll options must be unique".to_string()));
     }
     
-    dbg!(&payload);
-    
-    let creator_id = ObjectId::parse_str(&payload.creator_id)
+    let creator_id = ObjectId::parse_str(&claims.sub)
         .map_err(|e| AppError::BadRequest(format!("Invalid creator_id: {}", e)))?;
     
     let new_poll = Poll {
@@ -73,19 +70,19 @@ pub async fn create_poll(
         total_votes: 0
     };
 
-    coll.insert_one(&new_poll)
+    poll_collection.insert_one(&new_poll)
         .await?;
     
         
-    let poll_res = PollResponse {
+    let poll_response = PollResponse {
         id: new_poll.id.to_hex(),
         question: new_poll.question,
-        creator_id: payload.creator_id.clone(),
+        creator_id: creator_id.to_hex(),
         options: new_poll.options,
         is_closed: new_poll.is_closed,
         created_at: new_poll.created_at,
         total_votes: new_poll.total_votes,
     };
 
-    Ok(Json(poll_res))
+    Ok(Json(poll_response))
 }

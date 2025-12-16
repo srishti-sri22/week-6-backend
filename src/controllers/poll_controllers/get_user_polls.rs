@@ -1,28 +1,28 @@
 use axum::{
     Json,
-    extract::{Extension, Path},
+    extract::{Extension, State},
 };
-use std::sync::Arc;
 use mongodb::{
-    Database,
     bson::{doc, oid::ObjectId},
 };
 use futures::TryStreamExt;
 
 use crate::{controllers::poll_controllers::models::PollResponse, models::poll_models::Poll};
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::session::Claims;
+use crate::state::AppState;
 
 pub async fn get_polls_by_user(
-    Path(user_id): Path<String>,
-    Extension(db): Extension<Arc<Database>>
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> AppResult<Json<Vec<PollResponse>>> {
 
-    let coll = db.collection::<Poll>("polls");
+    let polls_collection = state.db.collection::<Poll>("polls");
 
-    let object_id = ObjectId::parse_str(&user_id)
+    let object_id = ObjectId::parse_str(&claims.sub)
         .map_err(|e| AppError::BadRequest(format!("Invalid user ID: {}", e)))?;
 
-    let cursor = coll
+    let cursor = polls_collection
         .find(doc! { "creator_id": object_id })
         .await?;
 

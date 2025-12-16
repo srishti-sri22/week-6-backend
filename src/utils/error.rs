@@ -49,7 +49,6 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_type, message) = match self {
             AppError::DatabaseError(msg) => {
-                eprintln!("❌ Database error: {}", msg);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "DATABASE_ERROR",

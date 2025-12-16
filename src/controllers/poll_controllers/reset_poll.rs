@@ -1,47 +1,44 @@
-use std::sync::Arc;
-
 use axum::{
     Json,
-    extract::{Extension, Path},
+    extract::{Extension, Path, State},
 };
 
 use mongodb::{
-    Database,
     bson::{doc, oid::ObjectId},
 };
-
 
 use crate::models::{
     poll_models::Poll,
     vote_record_models::VoteRecord,
 };
-use crate::controllers::poll_controllers::models::CreatorOnly;
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::session::Claims;
+use crate::state::AppState;
 
 pub async fn reset_poll(
     Path(poll_id): Path<String>,
-    Extension(db): Extension<Arc<Database>>,
-    Json(payload): Json<CreatorOnly>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> AppResult<Json<Poll>> {
-    let coll = db.collection::<Poll>("polls");
+    let poll_collection = state.db.collection::<Poll>("polls");
 
-    let obj_id = ObjectId::parse_str(&poll_id)
-        .map_err(|_| AppError::BadRequest("Invalid poll id".to_string()))?;
+    let poll_obj_id = ObjectId::parse_str(&poll_id)
+        .map_err(|e| AppError::BadRequest("Invalid poll id".to_string()))?;
 
-    let poll = coll
-        .find_one(doc! {"_id":obj_id})
+    let poll = poll_collection
+        .find_one(doc! {"_id":poll_obj_id})
         .await?
         .ok_or_else(|| AppError::NotFound("The Poll id does not exist".to_string()))?;
 
-    let current_user = ObjectId::parse_str(&payload.user_id)
+    let current_user = ObjectId::parse_str(&claims.sub)
         .map_err(|e| AppError::BadRequest(format!("Invalid user id: {}", e)))?;
 
     if poll.creator_id != current_user {
         return Err(AppError::BadRequest("Only the Creator of the Poll is allowed to RESET that Poll".to_string()));
     }
 
-    coll.update_one(
-        doc! {"_id":obj_id},
+    poll_collection.update_one(
+        doc! {"_id":poll_obj_id},
         doc! {
             "$set":{
                 "options.$[].votes":0,
@@ -52,14 +49,14 @@ pub async fn reset_poll(
     )
     .await?;
 
-    let vote_coll = db.collection::<VoteRecord>("vote_records");
+    let vote_collection = state.db.collection::<VoteRecord>("vote_records");
 
-    vote_coll
-        .delete_many(doc! { "poll_id": obj_id })
+    vote_collection
+        .delete_many(doc! { "poll_id": poll_obj_id })
         .await?;
 
-    let updated_poll = coll
-        .find_one(doc! { "_id": obj_id })
+    let updated_poll = poll_collection
+        .find_one(doc! { "_id": poll_obj_id })
         .await?
         .ok_or_else(|| AppError::NotFound("Poll not found".to_string()))?;
     

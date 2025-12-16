@@ -1,15 +1,19 @@
-use axum::{Router, extract::Extension, http::{HeaderValue, Method}, response::Json, routing::get};
+use axum::{Router, http::{HeaderValue, Method}, response::Json, routing::get};
 use serde_json::json;
 use std::{net::SocketAddr, sync::Arc};
 use dotenvy::dotenv;
 use tower_http::cors::CorsLayer;
+use std::time::Instant;
+use once_cell::sync::Lazy;
+static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
 mod db;
 mod routes;
 mod controllers;
 mod models;
 mod utils;
-
+mod state;
+mod middleware;
 
 #[tokio::main]
 async fn main() {
@@ -30,6 +34,8 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    let app_state = state::AppState::new(database, webauthn);
 
     let cors_origin = std::env::var("CORS_ORIGIN")
         .unwrap_or_else(|_| {
@@ -57,11 +63,9 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(root))
-        .nest("/api/auth", routes::auth_routes::auth_routes())
-        .nest("/api/polls", routes::poll_routes::poll_routes())
-        .layer(cors)
-        .layer(Extension(database.clone()))
-        .layer(Extension(webauthn));
+        .nest("/api/auth", routes::auth_routes::auth_routes(app_state.clone()))
+        .nest("/api/polls", routes::poll_routes::poll_routes(app_state.clone()))
+        .layer(cors);
 
     let server_addr = std::env::var("SERVER_ADDR")
         .unwrap_or_else(|_| {
@@ -93,8 +97,24 @@ async fn main() {
 }
 
 async fn root() -> Json<serde_json::Value> {
+    let elapsed = START_TIME.elapsed();
+    let seconds = elapsed.as_secs();
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+    let days = hours / 24;
+    
+    let uptime_message = if days > 0 {
+        format!("{}d {}h {}m {}s", days, hours % 24, minutes % 60, seconds % 60)
+    } else if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes % 60, seconds % 60)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds % 60)
+    } else {
+        format!("{}s", seconds)
+    };
+    
     Json(json!({
         "status": "ok",
-        "message": "Backend is running!"
+        "message": format!("Backend is running! Uptime: {}", uptime_message)
     }))
 }
